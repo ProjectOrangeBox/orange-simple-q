@@ -1,0 +1,9 @@
+{
+	"name": "packages/simple-q",
+	"description": "Simple Q",
+	"autoload": {
+		"psr-4": {
+			"simpleq\\": "src"
+    }
+	}
+}
