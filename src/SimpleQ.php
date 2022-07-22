@@ -50,6 +50,11 @@ class SimpleQ
 		}
 	}
 
+	public function __destruct()
+	{
+		$this->autoComplete();
+	}
+
 	/**
 	 * Method queue
 	 *
@@ -97,6 +102,13 @@ class SimpleQ
 		return ($dbc->rowCount() == 1);
 	}
 
+	protected function autoComplete(): void
+	{
+		if ($this->autoComplete && !empty($this->currentToken)) {
+			$this->complete();
+		}
+	}
+
 	/**
 	 * Method pull
 	 *
@@ -106,9 +118,7 @@ class SimpleQ
 	 */
 	public function pull(string $queue = null) /* record or false if nothing found */
 	{
-		if ($this->autoComplete && !empty($this->currentToken)) {
-			$this->complete();
-		}
+		$this->autoComplete();
 
 		$data = false;
 
