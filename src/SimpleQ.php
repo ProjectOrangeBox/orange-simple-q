@@ -2,187 +2,250 @@
 
 namespace simpleq;
 
-use stdClass;
-use CI_Model;
-use simpleq\SimpleQrecord;
+use DateTime;
 use simpleq\Exceptions\SimpleQException;
 
-class SimpleQ extends CI_Model
+class SimpleQ
 {
-	protected $table = 'simple_q';
-	protected $status_map = ['new' => 10, 'tagged' => 20, 'processed' => 30, 'error' => 40];
-	protected $status_map_flipped;
-	protected $db;
-	protected $clean_up_hours;
-	protected $retag_hours;
-	protected $token_hash;
-	protected $token_length;
-	protected $queue = '';
-	protected $json_options = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_NUMERIC_CHECK | JSON_PRESERVE_ZERO_FRACTION;
+	const NEW = 10;
+	const TAGGED = 20;
+	const COMPLETE = 30;
+	const ERROR = 40;
 
-	public function __construct(array $config = [])
+	protected $db = null;
+
+	protected $table = 'simpleq';
+	protected $cleanUpHours = 168; /* 7 days */
+	protected $retagHours = 0; /* retag as new incase a process died while working on the data */
+	protected $tokenHash = 'sha1';
+	protected $currentQueue = 'default';
+	protected $autoComplete = true;
+	protected $salt = 'ABC123';
+
+	protected $currentToken = '';
+
+	/**
+	 * Method __construct
+	 *
+	 * @param array $config [explicite description]
+	 *
+	 * @return void
+	 */
+	public function __construct(array $config)
 	{
-		$this->status_map_flipped = array_flip($this->status_map);
+		$this->db = $config['db'];
 
-		$config = \configMerge('simple_q', [
-			'tablename' => $this->table,
-			'clean up hours' => 168 /* 7 days */,
-			'requeue tagged hours' => 1 /* 1 hour */,
-			'token hash' => 'sha1' /* sha1 */,
-			'token length' => 40 /* sha1 length */,
-			'database group' => 'default',
-			'garbage collection percent' => 50 /* percent */
-		], $config);
+		$this->table = isset($config['table']) ? $config['table'] : $this->table;
+		$this->cleanUpHours = isset($config['clean up hours']) ? (int)$config['clean up hours'] : $this->cleanUpHours;
+		$this->retagHours = isset($config['requeue tagged hours']) ? (int)$config['requeue tagged hours'] : $this->retagHours;
+		$this->tokenHash = isset($config['token hash']) ? $config['token hash'] : $this->tokenHash;
+		$this->currentQueue = isset($config['default queue']) ? $config['default queue'] : $this->currentQueue;
+		$this->autoComplete = isset($config['auto complete']) ? $config['auto complete'] : $this->autoComplete;
+		$this->salt = isset($config['salt']) ? $config['salt'] : $this->salt;
 
-		$this->clean_up_hours = $config['clean up hours'];
-		$this->retag_hours = $config['requeue tagged hours'];
+		$garagePickUp = isset($config['garbage collection percent']) ? $config['garbage collection percent'] : 10;
 
-		$this->token_hash = $config['token hash'];
-		$this->token_length = $config['token length'];
-
-		$this->db = $this->load->database($config['database group'], true);
-
-		if (mt_rand(0, 99) < $config['garbage collection percent']) {
-			$this->cleanup();
+		if (mt_rand(0, 99) < $garagePickUp) {
+			$this->garagePickUp();
 		}
 	}
 
-	public function queue(string $queue): SimpleQ
+	/**
+	 * Method queue
+	 *
+	 * @param string $queue [explicite description]
+	 *
+	 * @return SimpleQ
+	 */
+	public function queue(string $queue): self
 	{
-		$this->queue = $queue;
+		$this->currentQueue = $queue;
 
 		return $this;
 	}
 
-	protected function get_queue()
+	public function getToken(): string
 	{
-		if (empty($this->queue)) {
-			throw new SimpleQException('Simple Q default queue not set.');
-		}
-
-		return md5($this->queue);
+		return $this->currentToken;
 	}
 
+	/**
+	 * Method push
+	 *
+	 * @param $data $data [explicite description]
+	 * @param string $queue [explicite description]
+	 *
+	 * @return bool
+	 */
 	public function push($data, string $queue = null): bool
 	{
+		/* change queue if it's sent in */
 		if ($queue !== null) {
 			$this->queue($queue);
 		}
 
-		return $this->db->insert($this->table, ['created' => date('Y-m-d H:i:s'), 'status' => $this->status_map['new'], 'payload' => $this->encode($data), 'queue' => $this->get_queue(), 'token' => null]);
+		$serialized = base64_encode(serialize($data));
+
+		$dbc = $this->db->insert($this->table, [
+			'created' => $this->now(),
+			'status' => SELF::NEW,
+			'payload' => $serialized,
+			'queue' => $this->getQueue(),
+			'checksum' => crc32($serialized . $this->salt),
+		]);
+
+		return ($dbc->rowCount() == 1);
 	}
 
-	public function pull($queue = null) /* record or false if nothing found */
+	/**
+	 * Method pull
+	 *
+	 * @param $queue $queue [explicite description]
+	 *
+	 * @return void
+	 */
+	public function pull(string $queue = null) /* record or false if nothing found */
 	{
-		$token = hash($this->token_hash, uniqid('', true));
-
-		$this->db->set(['token' => $token, 'status' => $this->status_map['tagged'], 'updated' => date('Y-m-d H:i:s')])->where(['status' => $this->status_map['new'], 'token is null' => null, 'queue' => $this->get_queue($queue)])->limit(1)->update($this->table);
-
-		if ($success = (bool) $this->db->affected_rows()) {
-			$record = $this->db->limit(1)->where(['token' => $token])->get($this->table)->row();
-
-			$record->status_raw = $record->status;
-			$record->status = $this->status_map_flipped[$record->status];
-			$record->payload = $this->decode($record);
-
-			$success = new SimpleQrecord($record, $this);
+		if ($this->autoComplete && !empty($this->currentToken)) {
+			$this->complete();
 		}
 
-		return $success;
-	}
+		$data = false;
 
-	public function cleanup(): SimpleQ
-	{
-		if ($this->retag_hours > 0) {
-			$this->db->set(['token' => null, 'status' => $this->status_map['new'], 'updated' => date('Y-m-d H:i:s')])->where(['updated < now() - interval ' . (int) $this->retag_hours . ' hour' => null, 'status' => $this->status_map['tagged']])->update($this->table);
-		}
+		/* tag one */
+		$token = $this->makeHash(uniqid('', true));
 
-		if ($this->clean_up_hours > 0) {
-			$this->db->where(['updated < now() - interval ' . (int) $this->clean_up_hours . ' hour' => null, 'status' => $this->status_map['processed']])->delete($this->table);
-		}
+		$stmt = $this->db->update($this->table, [
+			'token' => $token,
+			'status' => SELF::TAGGED,
+			'updated' => $this->now()
+		], [
+			'status' => SELF::NEW,
+			'token is null' => null,
+			'queue' => $this->getQueue($queue),
+		], 'limit 1');
 
-		return $this;
-	}
+		if ($stmt->rowCount() > 0) {
+			$stmt = $this->db->select($this->table, ['token', 'payload', 'checksum'], ['token' => $token]);
 
-	/* internally used by simple q record */
-	public function update($token, $status): bool
-	{
-		if (!array_key_exists($status, $this->status_map)) {
-			throw new SimpleQException('Unknown Simple Q record status "' . $status . '".');
-		}
+			$record = $stmt->fetchObject();
 
-		return $this->db->limit(1)->update($this->table, ['token' => null, 'updated' => date('Y-m-d H:i:s'), 'status' => $this->status_map[$status]], ['token' => $token]);
-	}
+			if (crc32($record->payload . $this->salt) != $record->checksum) {
+				throw new SimpleQException('Checksum failed');
+			}
 
-	public function complete(string $token): bool
-	{
-		return $this->update($token, 'processed');
-	}
+			$this->currentToken = $record->token;
 
-	public function new(string $token): bool
-	{
-		return $this->update($token, 'new');
-	}
-
-	public function error(string $token): bool
-	{
-		return $this->update($token, 'error');
-	}
-
-	/* protected */
-
-	protected function encode($data): string
-	{
-		$payload = new stdClass;
-
-		if (is_object($data)) {
-			$payload->type = 'object';
-		} elseif (is_scalar($data)) {
-			$payload->type = 'scalar';
-		} elseif (is_array($data)) {
-			$payload->type = 'array';
-		} else {
-			throw new SimpleQException('Could not encode Simple Q data.');
-		}
-
-		$payload->data = $data;
-		$payload->checksum = $this->create_checksum($data);
-
-		return json_encode($payload, $this->json_options);
-	}
-
-	protected function decode($record)
-	{
-		$payload_record = json_decode($record->payload, false);
-
-		switch ($payload_record->type) {
-			case 'object':
-				$data = $payload_record->data;
-				break;
-			case 'array':
-				$data = (array) $payload_record->data;
-				break;
-			case 'scalar':
-				$data = $payload_record->data;
-				break;
-			default:
-				throw new SimpleQException('Could not determine Simple Q data type.');
-		}
-
-		if (!$this->check_checksum($payload_record->checksum, $data)) {
-			throw new SimpleQException('Simple Q data checksum failed.');
+			$data = unserialize(base64_decode($record->payload));
 		}
 
 		return $data;
 	}
 
-	protected function create_checksum($payload)
+	/**
+	 * Method complete
+	 *
+	 * @param string $token [explicite description]
+	 *
+	 * @return bool
+	 */
+	public function complete(): bool
 	{
-		return crc32(json_encode($payload, $this->json_options));
+		$success = $this->update($this->currentToken, self::COMPLETE);
+
+		$this->currentToken = null;
+
+		return $success;
 	}
 
-	protected function check_checksum(string $checksum, $payload)
+	/**
+	 * Method error
+	 *
+	 * @param string $token [explicite description]
+	 *
+	 * @return bool
+	 */
+	public function error(): bool
 	{
-		return ($this->create_checksum($payload) == $checksum);
+		$success = $this->update($this->currentToken, self::ERROR);
+
+		$this->currentToken = null;
+
+		return $success;
+	}
+
+	/** PROTECTED */
+
+	/**
+	 * Method makeHash
+	 *
+	 * @param string $string [explicite description]
+	 *
+	 * @return string
+	 */
+	protected function makeHash(string $value): string
+	{
+		return hash($this->tokenHash, $value);
+	}
+
+	/**
+	 * Method getQueue
+	 *
+	 * @return void
+	 */
+	protected function getQueue(): string
+	{
+		return $this->makeHash($this->currentQueue);
+	}
+
+	/**
+	 * Method update
+	 *
+	 * @param $token $token [explicite description]
+	 * @param $status $status [explicite description]
+	 *
+	 * @return bool
+	 */
+	protected function update(string $token, int $status): bool
+	{
+		$dbc = $this->db->update($this->table, [
+			'token' => null,
+			'updated' => $this->now(),
+			'status' => $status,
+		], [
+			'token' => $token
+		]);
+
+		return ($dbc->rowCount() == 1);
+	}
+
+	protected function garagePickUp(): self
+	{
+		if ($this->retagHours > 0) {
+			$this->db->update($this->table, [
+				'token' => null,
+				'status' => self::NEW,
+				'updated' => $this->now()
+			], [
+				'updated < now() - interval ' . $this->retagHours . ' hour' => null,
+				'status' => self::TAGGED,
+			]);
+		}
+
+		if ($this->cleanUpHours > 0) {
+			$this->db->delete($this->table, [
+				'updated < now() - interval ' . $this->cleanUpHours . ' hour' => null,
+				'status' => self::COMPLETE,
+			]);
+		}
+
+		return $this;
+	}
+
+	protected function now(): string
+	{
+		$now = DateTime::createFromFormat('U.u', microtime(true));
+
+		return $now->format('Y-m-d H:i:s.u');
 	}
 } /* end class */
