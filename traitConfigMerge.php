@@ -32,7 +32,7 @@ trait traitConfigMerge
 	public function mergeConfiguration(array $config, array $options): void
 	{
 		foreach ($options as $configKeyName => $options) {
-			$valadateRule = ($options[0]) ?? null;
+			$realName = null;
 
 			if (isset($options[1])) {
 				if ($options[1] === true) {
@@ -40,8 +40,6 @@ trait traitConfigMerge
 				} else {
 					$realName = $options[1];
 				}
-			} else {
-				$realName = null;
 			}
 
 			$defaultValue = ($options[2]) ?? null;
@@ -52,6 +50,8 @@ trait traitConfigMerge
 			}
 
 			/* validate data */
+			$valadateRule = ($options[0]) ?? null;
+
 			if (substr($valadateRule, 0, 1) == '\\') {
 				$class = substr($valadateRule, 1);
 
