@@ -104,7 +104,7 @@ class SimpleQ
 
 		$now = $this->now();
 
-		return ($this->db->query('insert into __tablename__ (created,status,payload,queue,checksum) values (?,?,?,?,?)', [$now, SELF::NEW, $serialized, hash($this->tokenHash, $this->currentQueue), crc32($serialized . $now)])->rowCount() == 1);
+		return ($this->db->query('insert into __tablename__ (new,status,payload,queue,checksum) values (?,?,?,?,?)', [$now, SELF::NEW, $serialized, hash($this->tokenHash, $this->currentQueue), crc32($serialized . $now)])->rowCount() == 1);
 	}
 
 	/**
@@ -128,11 +128,11 @@ class SimpleQ
 		$token = hash($this->tokenHash, uniqid('', true));
 
 		if ($this->db->query('update __tablename__ set token = ?, status = ?, tagged = ? where status = ? and token is null and queue = ? limit 1', [$token, SELF::TAGGED, $this->now(), SELF::NEW, hash($this->tokenHash, $queue)])->rowCount() > 0) {
-			$cursor = $this->db->query('select created, token, payload, checksum from __tablename__ where token = ?', [$token]);
+			$cursor = $this->db->query('select new, token, payload, checksum from __tablename__ where token = ?', [$token]);
 
 			$record = $cursor->fetchObject();
 
-			if (crc32($record->payload . $record->created) != $record->checksum) {
+			if (crc32($record->payload . $record->new) != $record->checksum) {
 				throw new SimpleQException('Checksum failed');
 			}
 
@@ -153,7 +153,7 @@ class SimpleQ
 	 */
 	public function complete(): bool
 	{
-		return $this->changeStatus('completed', self::COMPLETE);
+		return $this->changeStatus('complete', self::COMPLETE);
 	}
 
 	/**
@@ -206,7 +206,7 @@ class SimpleQ
 
 			/* delete any complete */
 			if ($this->cleanUpHours > 0) {
-				$this->db->query('delete from __tablename__ where completed < now() - interval ' . $this->cleanUpHours . ' hour and status = ' . self::COMPLETE);
+				$this->db->query('delete from __tablename__ where complete < now() - interval ' . $this->cleanUpHours . ' hour and status = ' . self::COMPLETE);
 			}
 		}
 	}
