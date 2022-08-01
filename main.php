@@ -13,6 +13,7 @@ require __DIR__ . '/src/Exceptions/SimpleQException.php';
 
 $config = [
 	'db' => new Db('simpleq', 'root', 'root', 'localhost'),
+	'garbage collection percent' => 100,
 ];
 
 $simpleQ = new SimpleQ($config);

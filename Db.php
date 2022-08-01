@@ -6,6 +6,7 @@ class Db
 {
 	public $pdo;
 	public $append = '';
+	public $tablename = '';
 
 	public function __construct(string $databasename, string $username, string $password, string $host = '127.0.0.1', int $port = 3306, array $options = [])
 	{
@@ -26,6 +27,13 @@ class Db
 		}
 	}
 
+	public function tablename(string $tablename): self
+	{
+		$this->tablename = $tablename;
+
+		return $this;
+	}
+
 	public function append(string $append): self
 	{
 		$this->append = $append;
@@ -33,16 +41,16 @@ class Db
 		return $this;
 	}
 
-	public function query(string $sql, array $values): \PDOStatement
+	public function query(string $sql, array $values = []): \PDOStatement
 	{
-		$stmt = $this->pdo->prepare($sql);
+		$stmt = $this->pdo->prepare(str_replace('__tablename__', ' `' . $this->tablename . '` ', $sql));
 
 		$stmt->execute($values);
 
 		return $stmt;
 	}
 
-	public function insert(string $table, array $kv): int
+	public function insert(string $table, array $kv = []): int
 	{
 		$append = $this->getAppend();
 
@@ -65,7 +73,7 @@ class Db
 		return ($lastId != 0) ? $lastId : $stmt->rowCount();
 	}
 
-	public function update(string $table, array $kv, array $wkv = null): int
+	public function update(string $table, array $kv = [], array $wkv = []): int
 	{
 		$append = $this->getAppend();
 
@@ -99,7 +107,7 @@ class Db
 		return $stmt->rowCount();
 	}
 
-	public function delete(string $table, array $wkv = null): int
+	public function delete(string $table, array $wkv = []): int
 	{
 		$append = $this->getAppend();
 
@@ -122,7 +130,7 @@ class Db
 		return $stmt->rowCount();
 	}
 
-	public function select(string $table, array $selectFields, array $wkv = null)
+	public function select(string $table, array $selectFields, array $wkv = [])
 	{
 		$append = $this->getAppend();
 
