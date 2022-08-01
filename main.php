@@ -6,16 +6,14 @@ use simpleq\SimpleQ;
 
 date_default_timezone_set('America/New_York');
 
-require __DIR__ . '/Db.php';
 require __DIR__ . '/src/SimpleQ.php';
 require __DIR__ . '/src/Exceptions/SimpleQException.php';
 
-$config = [
-	'db' => new Db('simpleq', 'root', 'root', 'localhost'),
+$simpleQ = new SimpleQ([
 	'garbage collection percent' => 100,
-];
+], getConnection('simpleq', 'root', 'root', 'localhost'));
 
-$simpleQ = new SimpleQ($config);
+$simpleQ->queue('hot');
 
 $count = 10;
 
@@ -59,4 +57,25 @@ function RandomString(int $length)
 	}
 
 	return $randstring;
+}
+
+function getConnection(string $databasename, string $username, string $password, string $host = '127.0.0.1', int $port = 3306, array $options = []): PDO
+{
+	$defaultOptions = [
+		PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+		PDO::ATTR_EMULATE_PREPARES => false,
+		PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+	];
+
+	$options = array_replace($defaultOptions, $options);
+
+	$dsn = "mysql:host=$host;dbname=$databasename;port=$port;charset=utf8";
+
+	try {
+		$pdo = new \PDO($dsn, $username, $password, $options);
+	} catch (\PDOException $e) {
+		throw new \PDOException($e->getMessage(), (int)$e->getCode());
+	}
+
+	return $pdo;
 }

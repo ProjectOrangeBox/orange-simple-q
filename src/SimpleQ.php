@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace simpleq;
 
+use PDO;
 use DateTime;
+use PDOStatement;
 use simpleq\Exceptions\SimpleQException;
 
 class SimpleQ
@@ -16,7 +18,7 @@ class SimpleQ
 
 	protected $db = null;
 
-	protected $table = 'simpleq';
+	protected $tablename = 'simpleq';
 	protected $garagePickUp = 10;
 	protected $cleanUpHours = 24 * 7; /* 7 days */
 	protected $retagHours = 1; /* retag as "new" incase a process died while working on the data */
@@ -25,6 +27,7 @@ class SimpleQ
 	protected $autoComplete = true;
 
 	protected $currentToken = null;
+	protected $pdo = null;
 
 	/**
 	 * Method __construct
@@ -33,14 +36,11 @@ class SimpleQ
 	 *
 	 * @return void
 	 */
-	public function __construct(array $config)
+	public function __construct(array $config, pdo $pdo)
 	{
-		$this->db = $config['db'];
+		$this->pdo = $pdo;
 
-		$table = isset($config['table']) ? $config['table'] : $this->table;
-
-		$this->db->tablename($table);
-
+		$this->tablename = isset($config['tablename']) ? $config['tablename'] : $this->tablename;
 		$this->cleanUpHours = isset($config['clean up hours']) ? (int)$config['clean up hours'] : $this->cleanUpHours;
 		$this->retagHours = isset($config['requeue tagged hours']) ? (int)$config['requeue tagged hours'] : $this->retagHours;
 		$this->tokenHash = isset($config['token hash']) ? $config['token hash'] : $this->tokenHash;
@@ -104,7 +104,7 @@ class SimpleQ
 
 		$now = $this->now();
 
-		return ($this->db->query('insert into __tablename__ (new,status,payload,queue,checksum) values (?,?,?,?,?)', [$now, SELF::NEW, $serialized, hash($this->tokenHash, $this->currentQueue), crc32($serialized . $now)])->rowCount() == 1);
+		return ($this->query('insert into __tablename__ (`new`,`status`,`payload`,`queue`,`checksum`) values (?,?,?,?,?)', [$now, SELF::NEW, $serialized, hash($this->tokenHash, $this->currentQueue), crc32($serialized . $now)])->rowCount() == 1);
 	}
 
 	/**
@@ -127,8 +127,8 @@ class SimpleQ
 		/* tag one */
 		$token = hash($this->tokenHash, uniqid('', true));
 
-		if ($this->db->query('update __tablename__ set token = ?, status = ?, tagged = ? where status = ? and token is null and queue = ? limit 1', [$token, SELF::TAGGED, $this->now(), SELF::NEW, hash($this->tokenHash, $queue)])->rowCount() > 0) {
-			$cursor = $this->db->query('select new, token, payload, checksum from __tablename__ where token = ?', [$token]);
+		if ($this->query('update __tablename__ set `token` = ?, `status` = ?, `tagged` = ? where `status` = ? and `token` is null and `queue` = ? limit 1', [$token, SELF::TAGGED, $this->now(), SELF::NEW, hash($this->tokenHash, $queue)])->rowCount() > 0) {
+			$cursor = $this->query('select `new`, `token`, `payload`, `checksum` from __tablename__ where `token` = ?', [$token]);
 
 			$record = $cursor->fetchObject();
 
@@ -188,7 +188,7 @@ class SimpleQ
 
 		$this->currentToken = null;
 
-		return ($this->db->query('update __tablename__ set token = null, status = ?, ' . $datetimeColumnName . ' = ? where token = ?', [$status, $this->now(), $token])->rowCount() == 1);
+		return ($this->query('update __tablename__ set `token` = null, `status` = ?, `' . $datetimeColumnName . '` = ? where token = ?', [$status, $this->now(), $token])->rowCount() == 1);
 	}
 
 	/**
@@ -201,12 +201,12 @@ class SimpleQ
 		if (mt_rand(1, 99) < $this->garagePickUp) {
 			/* retag "tagged" to "new" if they got stuck because a process never completed them */
 			if ($this->retagHours > 0) {
-				$this->db->query('update __tablename__ set token = null, status = ' . self::NEW . ', tagged = null where tagged < now() - interval ' . $this->retagHours . ' hour and status = ' . self::TAGGED);
+				$this->query('update __tablename__ set `token` = null, `status` = ' . self::NEW . ', `tagged` = null where `tagged` < now() - interval ' . $this->retagHours . ' hour and `status` = ' . self::TAGGED);
 			}
 
 			/* delete any complete */
 			if ($this->cleanUpHours > 0) {
-				$this->db->query('delete from __tablename__ where complete < now() - interval ' . $this->cleanUpHours . ' hour and status = ' . self::COMPLETE);
+				$this->query('delete from __tablename__ where `complete` < now() - interval ' . $this->cleanUpHours . ' hour and `status` = ' . self::COMPLETE);
 			}
 		}
 	}
@@ -226,5 +226,14 @@ class SimpleQ
 		} while (!$now);
 
 		return $now->format('Y-m-d H:i:s.u');
+	}
+
+	protected function query(string $sql, array $values = []): PDOStatement
+	{
+		$stmt = $this->pdo->prepare(str_replace('__tablename__', ' `' . $this->tablename . '` ', $sql));
+
+		$stmt->execute($values);
+
+		return $stmt;
 	}
 } /* end class */
