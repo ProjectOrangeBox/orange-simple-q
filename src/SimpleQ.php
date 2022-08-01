@@ -16,11 +16,10 @@ class SimpleQ
 
 	protected $table = 'simpleq';
 	protected $cleanUpHours = 168; /* 7 days */
-	protected $retagHours = 0; /* retag as new incase a process died while working on the data */
+	protected $retagHours = 1; /* retag as "new" incase a process died while working on the data */
 	protected $tokenHash = 'sha1';
 	protected $currentQueue = 'default';
 	protected $autoComplete = true;
-	protected $salt = 'ABC123';
 
 	protected $currentToken = null;
 
@@ -41,7 +40,6 @@ class SimpleQ
 		$this->tokenHash = isset($config['token hash']) ? $config['token hash'] : $this->tokenHash;
 		$this->currentQueue = isset($config['default queue']) ? $config['default queue'] : $this->currentQueue;
 		$this->autoComplete = isset($config['auto complete']) ? $config['auto complete'] : $this->autoComplete;
-		$this->salt = isset($config['salt']) ? $config['salt'] : $this->salt;
 
 		$garagePickUp = isset($config['garbage collection percent']) ? $config['garbage collection percent'] : 10;
 
@@ -111,15 +109,14 @@ class SimpleQ
 
 		$serialized = base64_encode(serialize($data));
 
-		$dbc = $this->db->insert($this->table, [
-			'created' => $this->now(),
-			'status' => SELF::NEW,
-			'payload' => $serialized,
-			'queue' => $this->makeHash($this->currentQueue),
-			'checksum' => crc32($serialized . $this->salt),
-		]);
+		$now = $this->now();
 
-		return ($dbc->rowCount() == 1);
+		$stmt = $this->db->query(
+			'insert into `' . $this->table . '` (created,status,payload,queue,checksum) values (?,?,?,?,?)',
+			[$now, SELF::NEW, $serialized, $this->makeHash($this->currentQueue), crc32($serialized . $now)]
+		);
+
+		return ($stmt->rowCount() == 1);
 	}
 
 	/**
@@ -140,22 +137,15 @@ class SimpleQ
 		/* tag one */
 		$token = $this->makeHash(uniqid('', true));
 
-		$stmt = $this->db->update($this->table, [
-			'token' => $token,
-			'status' => SELF::TAGGED,
-			'updated' => $this->now()
-		], [
-			'status' => SELF::NEW,
-			'token is null' => null,
-			'queue' => $this->makeHash($queue),
-		], 'limit 1');
+		$stmt = $this->db->query(
+			'update `' . $this->table . '` set token = ?, status = ?, tagged = ? where status = ? and token is null and queue = ? limit 1',
+			[$token, SELF::TAGGED, $this->now(), SELF::NEW, $this->makeHash($queue)]
+		);
 
 		if ($stmt->rowCount() > 0) {
-			$stmt = $this->db->select($this->table, ['token', 'payload', 'checksum'], ['token' => $token]);
+			$record = $this->db->select($this->table, ['created', 'token', 'payload', 'checksum'], ['token' => $token]);
 
-			$record = $stmt->fetchObject();
-
-			if (crc32($record->payload . $this->salt) != $record->checksum) {
+			if (crc32($record->payload . $record->created) != $record->checksum) {
 				throw new SimpleQException('Checksum failed');
 			}
 
@@ -176,15 +166,7 @@ class SimpleQ
 	 */
 	public function complete(): bool
 	{
-		$success = false;
-
-		if ($this->currentToken !== null) {
-			$success = $this->update($this->currentToken, self::COMPLETE);
-
-			$this->currentToken = null;
-		}
-
-		return $success;
+		return $this->changeStatus(self::COMPLETE);
 	}
 
 	/**
@@ -196,18 +178,23 @@ class SimpleQ
 	 */
 	public function error(): bool
 	{
-		$success = false;
-
-		if ($this->currentToken !== null) {
-			$success = $this->update($this->currentToken, self::ERROR);
-
-			$this->currentToken = null;
-		}
-
-		return $success;
+		return $this->changeStatus(self::ERROR);
 	}
 
 	/** PROTECTED */
+
+	protected function changeStatus(int $status): bool
+	{
+		if ($this->currentToken == null) {
+			throw new SimpleQException('Change status failed. No record token loaded');
+		}
+
+		$token = $this->currentToken;
+
+		$this->currentToken = null;
+
+		return ($this->update($token, $status) > 0);
+	}
 
 	/**
 	 * Method autoComplete
@@ -243,15 +230,23 @@ class SimpleQ
 	 */
 	protected function update(string $token, int $status): bool
 	{
-		$dbc = $this->db->update($this->table, [
+		$columns = [
 			'token' => null,
-			'updated' => $this->now(),
 			'status' => $status,
-		], [
-			'token' => $token
-		]);
+		];
 
-		return ($dbc->rowCount() == 1);
+		switch ($status) {
+			case SELF::TAGGED:
+				$columns['tagged'] = $this->now();
+				break;
+			case SELF::COMPLETE:
+				$columns['completed'] = $this->now();
+				break;
+		}
+
+		$rowCount = $this->db->update($this->table, $columns, ['token' => $token]);
+
+		return ($rowCount == 1);
 	}
 
 	/**
@@ -261,20 +256,22 @@ class SimpleQ
 	 */
 	protected function garagePickUp(): self
 	{
+		/* retag "tagged" to "new" if they got stuck because a process never completed them */
 		if ($this->retagHours > 0) {
-			$this->db->update($this->table, [
+			$rowCount = $this->db->update($this->table, [
 				'token' => null,
 				'status' => self::NEW,
-				'updated' => $this->now()
+				'tagged' => null,
 			], [
-				'updated < now() - interval ' . $this->retagHours . ' hour' => null,
+				'tagged < now() - interval ' . $this->retagHours . ' hour' => null,
 				'status' => self::TAGGED,
 			]);
 		}
 
+		/* delete any complete */
 		if ($this->cleanUpHours > 0) {
-			$this->db->delete($this->table, [
-				'updated < now() - interval ' . $this->cleanUpHours . ' hour' => null,
+			$rowCount = $this->db->delete($this->table, [
+				'completed < now() - interval ' . $this->cleanUpHours . ' hour' => null,
 				'status' => self::COMPLETE,
 			]);
 		}
@@ -289,7 +286,7 @@ class SimpleQ
 	 */
 	protected function now(): string
 	{
-		$now = DateTime::createFromFormat('U.u', microtime(true));
+		$now = \DateTime::createFromFormat('U.u', microtime(true));
 
 		return $now->format('Y-m-d H:i:s.u');
 	}

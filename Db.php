@@ -5,6 +5,7 @@ declare(strict_types=1);
 class Db
 {
 	public $pdo;
+	public $append = '';
 
 	public function __construct(string $databasename, string $username, string $password, string $host = '127.0.0.1', int $port = 3306, array $options = [])
 	{
@@ -15,39 +16,68 @@ class Db
 		];
 
 		$options = array_replace($defaultOptions, $options);
-		$dsn = "mysql:host=$host;dbname=$databasename;port=$port;charset=utf8mb4";
+
+		$dsn = "mysql:host=$host;dbname=$databasename;port=$port;charset=utf8";
 
 		try {
 			$this->pdo = new \PDO($dsn, $username, $password, $options);
 		} catch (\PDOException $e) {
 			throw new \PDOException($e->getMessage(), (int)$e->getCode());
 		}
-
-		$this->pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
 	}
 
-	public function insert(string $table, array $kv, string $append = '')
+	public function append(string $append): self
 	{
+		$this->append = $append;
+
+		return $this;
+	}
+
+	public function query(string $sql, array $values): \PDOStatement
+	{
+		$stmt = $this->pdo->prepare($sql);
+
+		$stmt->execute($values);
+
+		return $stmt;
+	}
+
+	public function insert(string $table, array $kv): int
+	{
+		$append = $this->getAppend();
+
 		$fields = [];
 		$values = [];
+		$placeHolders = [];
 
 		foreach ($kv as $key => $value) {
 			$fields[] = '`' . $key . '`';
-			$values[] = "'" . $value . "'";
+			$values[] = ":" . $key;
+			$placeHolders[$key] = $value;
 		}
 
-		return $this->pdo->query('insert into ' . $table . ' (' . implode(' , ', $fields) . ') values (' . implode(' , ', $values) . ') ' . $append);
+		$stmt = $this->pdo->prepare('insert into ' . $table . ' (' . implode(' , ', $fields) . ') values (' . implode(' , ', $values) . ') ' . $append);
+
+		$stmt->execute($placeHolders);
+
+		$lastId = (int)$this->pdo->lastInsertId();
+
+		return ($lastId != 0) ? $lastId : $stmt->rowCount();
 	}
 
-	public function update(string $table, array $kv, array $wkv = null, string $append = '')
+	public function update(string $table, array $kv, array $wkv = null): int
 	{
+		$append = $this->getAppend();
+
 		$fields = [];
+		$placeHolders = [];
 
 		foreach ($kv as $key => $value) {
 			if ($value == null) {
 				$fields[] = "`" . $key . "`= null";
 			} else {
-				$fields[] = "`" . $key . "`= '" . $value . "'";
+				$fields[] = "`" . $key . "`= :set_" . $key;
+				$placeHolders['set_' . $key] = $value;
 			}
 		}
 
@@ -57,47 +87,76 @@ class Db
 			if ($value === null) {
 				$where[] = $key;
 			} else {
-				$where[] = "`" . $key . "`= '" . $value . "'";
+				$where[] = "`" . $key . "`= :where_" . $key;
+				$placeHolders['where_' . $key] = $value;
 			}
 		}
 
-		return $this->pdo->query('update ' . $table . ' set ' . implode(' , ', $fields) . ' where ' . implode(' and ', $where) . ' ' . $append);
+		$stmt = $this->pdo->prepare('update ' . $table . ' set ' . implode(' , ', $fields) . ' where ' . implode(' and ', $where) . ' ' . $append);
+
+		$stmt->execute($placeHolders);
+
+		return $stmt->rowCount();
 	}
 
-	public function delete(string $table, array $wkv = null, string $append = '')
+	public function delete(string $table, array $wkv = null): int
 	{
+		$append = $this->getAppend();
+
 		$where = [];
+		$placeHolders = [];
 
 		foreach ($wkv as $key => $value) {
 			if ($value === null) {
 				$where[] = $key;
 			} else {
-				$where[] = "`" . $key . "`= '" . $value . "'";
+				$where[] = "`" . $key . "`= :" . $key;
+				$placeHolders[$key] = $value;
 			}
 		}
 
-		return $this->pdo->query('delete from `' . $table . '` where ' . implode(' and ', $where) . ' ' . $append);
+		$stmt = $this->pdo->prepare('delete from `' . $table . '` where ' . implode(' and ', $where) . ' ' . $append);
+
+		$stmt->execute($placeHolders);
+
+		return $stmt->rowCount();
 	}
 
-
-	public function select(string $table, array $kv, array $wkv = null, string $append = '')
+	public function select(string $table, array $selectFields, array $wkv = null)
 	{
+		$append = $this->getAppend();
+
 		$fields = [];
 
-		foreach ($kv as $value) {
+		foreach ($selectFields as $value) {
 			$fields[] = "`" . $value . "`";
 		}
 
 		$where = [];
+		$placeHolders = [];
 
 		foreach ($wkv as $key => $value) {
 			if ($value === null) {
 				$where[] = $key;
 			} else {
-				$where[] = "`" . $key . "`= '" . $value . "'";
+				$where[] = "`" . $key . "`= :" . $key;
+				$placeHolders[$key] = $value;
 			}
 		}
 
-		return $this->pdo->query('select ' . implode(' , ', $fields) . ' from `' . $table . '` where ' . implode(' and ', $where) . ' ' . $append);
+		$stmt = $this->pdo->prepare('select ' . implode(' , ', $fields) . ' from `' . $table . '` where ' . implode(' and ', $where) . ' ' . $append);
+
+		$stmt->execute($placeHolders);
+
+		return $stmt->fetchObject();
+	}
+
+	protected function getAppend(): string
+	{
+		$append = $this->append;
+
+		$this->append = '';
+
+		return $append;
 	}
 } /* end class */
