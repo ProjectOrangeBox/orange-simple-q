@@ -102,9 +102,7 @@ class SimpleQ
 
 		$now = $this->now();
 
-		$stmt = $this->db->query('insert into __tablename__ (created,status,payload,queue,checksum) values (?,?,?,?,?)', [$now, SELF::NEW, $serialized, $this->makeHash($this->currentQueue), crc32($serialized . $now)]);
-
-		return ($stmt->rowCount() == 1);
+		return ($this->db->query('insert into __tablename__ (created,status,payload,queue,checksum) values (?,?,?,?,?)', [$now, SELF::NEW, $serialized, hash($this->tokenHash, $this->currentQueue), crc32($serialized . $now)])->rowCount() == 1);
 	}
 
 	/**
@@ -125,14 +123,12 @@ class SimpleQ
 		$data = false;
 
 		/* tag one */
-		$token = $this->makeHash(uniqid('', true));
+		$token = hash($this->tokenHash, uniqid('', true));
 
-		$stmt = $this->db->query('update __tablename__ set token = ?, status = ?, tagged = ? where status = ? and token is null and queue = ? limit 1', [$token, SELF::TAGGED, $this->now(), SELF::NEW, $this->makeHash($queue)]);
+		if ($this->db->query('update __tablename__ set token = ?, status = ?, tagged = ? where status = ? and token is null and queue = ? limit 1', [$token, SELF::TAGGED, $this->now(), SELF::NEW, hash($this->tokenHash, $queue)])->rowCount() > 0) {
+			$cursor = $this->db->query('select created, token, payload, checksum from __tablename__ where token = ?', [$token]);
 
-		if ($stmt->rowCount() > 0) {
-			$stmt = $this->db->query('select created, token, payload, checksum from __tablename__ where token = ?', [$token]);
-
-			$record = $stmt->fetchObject();
+			$record = $cursor->fetchObject();
 
 			if (crc32($record->payload . $record->created) != $record->checksum) {
 				throw new SimpleQException('Checksum failed');
@@ -190,21 +186,7 @@ class SimpleQ
 
 		$this->currentToken = null;
 
-		$sql = 'update __tablename__ set token = null, status = ?, ' . $datetimeColumnName . ' = ? where token = ?';
-
-		return ($this->db->query($sql, [$status, $this->now(), $token])->rowCount() == 1);
-	}
-
-	/**
-	 * Method makeHash
-	 *
-	 * @param string $string [explicite description]
-	 *
-	 * @return string
-	 */
-	protected function makeHash(string $value): string
-	{
-		return hash($this->tokenHash, $value);
+		return ($this->db->query('update __tablename__ set token = null, status = ?, ' . $datetimeColumnName . ' = ? where token = ?', [$status, $this->now(), $token])->rowCount() == 1);
 	}
 
 	/**
