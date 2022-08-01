@@ -10,7 +10,6 @@ require __DIR__ . '/Db.php';
 require __DIR__ . '/src/SimpleQ.php';
 require __DIR__ . '/src/Exceptions/SimpleQException.php';
 
-
 $config = [
 	'db' => new Db('simpleq', 'root', 'root', 'localhost'),
 	'garbage collection percent' => 100,
@@ -18,22 +17,46 @@ $config = [
 
 $simpleQ = new SimpleQ($config);
 
-while (1 == 1) {
+$count = 10;
 
-	for ($i = 0; $i < mt_rand(100, 9999); $i++) {
-		$success = $simpleQ->push(['name' => 'Don Myers ' . date('H:i:s') . '.' . mt_rand(1000, 9999)]);
+while (1 == 1) {
+	/* add some */
+	for ($i = 0; $i < mt_rand(1, $count); $i++) {
+		$obj = new stdClass;
+
+		$obj->name = 'Don Myers';
+		$obj->date =  date('H:i:s');
+		$obj->rando = mt_rand(1000, 9999);
+		$obj->string = RandomString(mt_rand(10, 100));
+
+		$simpleQ->push($obj);
 	}
 
-	for ($i = 0; $i < mt_rand(1, 10); $i++) {
+	/* pull some */
+	for ($i = 0; $i < mt_rand(1, $count); $i++) {
 		$data = $simpleQ->pull();
 
-		echo $data['name'] . chr(10);
+		if ($data) {
+			var_dump($data);
 
-		/* threw random error */
-		if (mt_rand(1, 99) > 75) {
-			$simpleQ->error();
-		} else {
-			$simpleQ->complete();
+			/* threw random error */
+			if (mt_rand(1, 99) > 75) {
+				$simpleQ->error();
+			} else {
+				$simpleQ->complete();
+			}
 		}
 	}
+}
+
+function RandomString(int $length)
+{
+	$characters = ' 0123456 789abcdefghijk lmnopqrstuvwxyzABC DEFGHIJKLMNOPQRSTUVWXYZ ';
+	$randstring = '';
+
+	for ($i = 0; $i < $length; $i++) {
+		$randstring .= $characters[rand(0, strlen($characters) - 1)];
+	}
+
+	return $randstring;
 }

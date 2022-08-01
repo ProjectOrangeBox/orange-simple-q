@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace simpleq;
 
 use DateTime;
@@ -220,7 +222,7 @@ class SimpleQ
 
 		/* sometimes now is null */
 		do {
-			$now = DateTime::createFromFormat('U.u', microtime(true));
+			$now = DateTime::createFromFormat('U.u', (string)microtime(true));
 		} while (!$now);
 
 		return $now->format('Y-m-d H:i:s.u');

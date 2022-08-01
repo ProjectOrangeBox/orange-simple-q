@@ -52,8 +52,6 @@ class Db
 
 	public function insert(string $table, array $kv = []): int
 	{
-		$append = $this->getAppend();
-
 		$fields = [];
 		$values = [];
 		$placeHolders = [];
@@ -64,7 +62,7 @@ class Db
 			$placeHolders[$key] = $value;
 		}
 
-		$stmt = $this->pdo->prepare('insert into ' . $table . ' (' . implode(' , ', $fields) . ') values (' . implode(' , ', $values) . ') ' . $append);
+		$stmt = $this->pdo->prepare('insert into ' . $table . ' (' . implode(' , ', $fields) . ') values (' . implode(' , ', $values) . ') ' . $this->getAppend());
 
 		$stmt->execute($placeHolders);
 
@@ -75,8 +73,6 @@ class Db
 
 	public function update(string $table, array $kv = [], array $wkv = []): int
 	{
-		$append = $this->getAppend();
-
 		$fields = [];
 		$placeHolders = [];
 
@@ -100,7 +96,7 @@ class Db
 			}
 		}
 
-		$stmt = $this->pdo->prepare('update ' . $table . ' set ' . implode(' , ', $fields) . ' where ' . implode(' and ', $where) . ' ' . $append);
+		$stmt = $this->pdo->prepare('update ' . $table . ' set ' . implode(' , ', $fields) . ' where ' . implode(' and ', $where) . ' ' . $this->getAppend());
 
 		$stmt->execute($placeHolders);
 
@@ -109,8 +105,6 @@ class Db
 
 	public function delete(string $table, array $wkv = []): int
 	{
-		$append = $this->getAppend();
-
 		$where = [];
 		$placeHolders = [];
 
@@ -123,7 +117,7 @@ class Db
 			}
 		}
 
-		$stmt = $this->pdo->prepare('delete from `' . $table . '` where ' . implode(' and ', $where) . ' ' . $append);
+		$stmt = $this->pdo->prepare('delete from `' . $table . '` where ' . implode(' and ', $where) . ' ' . $this->getAppend());
 
 		$stmt->execute($placeHolders);
 
@@ -132,8 +126,6 @@ class Db
 
 	public function select(string $table, array $selectFields, array $wkv = [])
 	{
-		$append = $this->getAppend();
-
 		$fields = [];
 
 		foreach ($selectFields as $value) {
@@ -152,7 +144,7 @@ class Db
 			}
 		}
 
-		$stmt = $this->pdo->prepare('select ' . implode(' , ', $fields) . ' from `' . $table . '` where ' . implode(' and ', $where) . ' ' . $append);
+		$stmt = $this->pdo->prepare('select ' . implode(' , ', $fields) . ' from `' . $table . '` where ' . implode(' and ', $where) . ' ' . $this->getAppend());
 
 		$stmt->execute($placeHolders);
 
