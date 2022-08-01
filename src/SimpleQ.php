@@ -15,12 +15,13 @@ class SimpleQ
 	protected $db = null;
 
 	protected $table = 'simpleq';
+	protected $garagePickUp = 10;
 	protected $cleanUpHours = 24 * 7; /* 7 days */
 	protected $retagHours = 1; /* retag as "new" incase a process died while working on the data */
 	protected $tokenHash = 'sha1';
 	protected $currentQueue = 'default';
 	protected $autoComplete = true;
-	protected $garagePickUp = true;
+
 	protected $currentToken = null;
 
 	/**
@@ -34,27 +35,18 @@ class SimpleQ
 	{
 		$this->db = $config['db'];
 
-		$this->table = isset($config['table']) ? $config['table'] : $this->table;
+		$table = isset($config['table']) ? $config['table'] : $this->table;
+
+		$this->db->tablename($table);
+
 		$this->cleanUpHours = isset($config['clean up hours']) ? (int)$config['clean up hours'] : $this->cleanUpHours;
 		$this->retagHours = isset($config['requeue tagged hours']) ? (int)$config['requeue tagged hours'] : $this->retagHours;
 		$this->tokenHash = isset($config['token hash']) ? $config['token hash'] : $this->tokenHash;
+		$this->garagePickUp = isset($config['garbage collection percent']) ? $config['garbage collection percent'] : $this->garagePickUp;
 		$this->currentQueue = isset($config['default queue']) ? $config['default queue'] : $this->currentQueue;
-		$this->autoComplete = isset($config['auto complete']) ? $config['auto complete'] : $this->autoComplete;
-		$this->garagePickUp = isset($config['garbage collection percent']) ? $config['garbage collection percent'] : 10;
-
-		$this->db->tablename($this->table);
+		$this->autoComplete = isset($config['auto complete']) ? (bool)$config['auto complete'] : $this->autoComplete;
 
 		$this->garagePickUp();
-	}
-
-	/**
-	 * Method __destruct
-	 *
-	 * @return void
-	 */
-	public function __destruct()
-	{
-		$this->autoComplete();
 	}
 
 	/**
@@ -124,7 +116,9 @@ class SimpleQ
 	 */
 	public function pull(string $queue = null) /* record or false if nothing found */
 	{
-		$this->autoComplete();
+		if ($this->autoComplete && $this->currentToken !== null) {
+			$this->complete();
+		}
 
 		$queue = ($queue) ?? $this->currentQueue;
 
@@ -178,6 +172,14 @@ class SimpleQ
 
 	/** PROTECTED */
 
+	/**
+	 * Method changeStatus
+	 *
+	 * @param string $datetimeColumnName [explicite description]
+	 * @param int $status [explicite description]
+	 *
+	 * @return bool
+	 */
 	protected function changeStatus(string $datetimeColumnName, int $status): bool
 	{
 		if ($this->currentToken == null) {
@@ -191,18 +193,6 @@ class SimpleQ
 		$sql = 'update __tablename__ set token = null, status = ?, ' . $datetimeColumnName . ' = ? where token = ?';
 
 		return ($this->db->query($sql, [$status, $this->now(), $token])->rowCount() == 1);
-	}
-
-	/**
-	 * Method autoComplete
-	 *
-	 * @return void
-	 */
-	protected function autoComplete(): void
-	{
-		if ($this->autoComplete && $this->currentToken !== null) {
-			$this->complete();
-		}
 	}
 
 	/**
@@ -244,7 +234,12 @@ class SimpleQ
 	 */
 	protected function now(): string
 	{
-		$now = \DateTime::createFromFormat('U.u', microtime(true));
+		$now = false;
+
+		/* sometimes now is null */
+		do {
+			$now = DateTime::createFromFormat('U.u', microtime(true));
+		} while (!$now);
 
 		return $now->format('Y-m-d H:i:s.u');
 	}

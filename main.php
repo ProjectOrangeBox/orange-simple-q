@@ -18,13 +18,22 @@ $config = [
 
 $simpleQ = new SimpleQ($config);
 
-for ($i = 0; $i < mt_rand(100, 9999); $i++) {
-	$success = $simpleQ->push(['name' => 'Don Myers ' . date('H:i:s') . '.' . mt_rand(1000, 9999)]);
+while (1 == 1) {
+
+	for ($i = 0; $i < mt_rand(100, 9999); $i++) {
+		$success = $simpleQ->push(['name' => 'Don Myers ' . date('H:i:s') . '.' . mt_rand(1000, 9999)]);
+	}
+
+	for ($i = 0; $i < mt_rand(1, 10); $i++) {
+		$data = $simpleQ->pull();
+
+		echo $data['name'] . chr(10);
+
+		/* threw random error */
+		if (mt_rand(1, 99) > 75) {
+			$simpleQ->error();
+		} else {
+			$simpleQ->complete();
+		}
+	}
 }
-
-$data = $simpleQ->pull();
-
-var_dump($data);
-
-/* do something with data */
-$simpleQ->complete();
