@@ -4,19 +4,19 @@ declare(strict_types=1);
 
 namespace simpleq;
 
-use PDO;
 use DateTime;
 use PDOStatement;
+use base\traitConfigMerge;
 use simpleq\Exceptions\SimpleQException;
 
 class SimpleQ
 {
+	use traitConfigMerge;
+
 	const NEW = 1;
 	const TAGGED = 2;
 	const COMPLETE = 3;
 	const ERROR = 4;
-
-	protected $db = null;
 
 	protected $tablename = 'simpleq';
 	protected $garagePickUp = 10;
@@ -26,6 +26,7 @@ class SimpleQ
 	protected $currentQueue = 'default';
 	protected $autoComplete = true;
 
+	protected $config = [];
 	protected $currentToken = null;
 	protected $pdo = null;
 
@@ -36,17 +37,22 @@ class SimpleQ
 	 *
 	 * @return void
 	 */
-	public function __construct(array $config, pdo $pdo)
+	public function __construct(array $config)
 	{
-		$this->pdo = $pdo;
+		$options = [
+			'table name' => ['is_string', 'tablename'],
+			'clean up hours' => ['is_int', 'cleanUpHours'],
+			'requeue tagged hours' => ['is_int', 'retagHours'],
+			'token hash' => ['is_string', 'tokenHash'],
+			'garbage collection percent' => ['is_int', 'garagePickUp'],
+			'default queue' => ['is_string', 'currentQueue'],
+			'auto complete' => ['is_bool', 'autoComplete'],
+			'config only' => ['is_int', null, 'Don Myers'],
+			'foobar' => ['is_string', null, 'test'],
+			'pdo' => ['\PDO', true],
+		];
 
-		$this->tablename = isset($config['tablename']) ? $config['tablename'] : $this->tablename;
-		$this->cleanUpHours = isset($config['clean up hours']) ? (int)$config['clean up hours'] : $this->cleanUpHours;
-		$this->retagHours = isset($config['requeue tagged hours']) ? (int)$config['requeue tagged hours'] : $this->retagHours;
-		$this->tokenHash = isset($config['token hash']) ? $config['token hash'] : $this->tokenHash;
-		$this->garagePickUp = isset($config['garbage collection percent']) ? $config['garbage collection percent'] : $this->garagePickUp;
-		$this->currentQueue = isset($config['default queue']) ? $config['default queue'] : $this->currentQueue;
-		$this->autoComplete = isset($config['auto complete']) ? (bool)$config['auto complete'] : $this->autoComplete;
+		$this->mergeConfiguration($config, $options);
 
 		$this->garagePickUp();
 	}
@@ -228,6 +234,14 @@ class SimpleQ
 		return $now->format('Y-m-d H:i:s.u');
 	}
 
+	/**
+	 * Method query
+	 *
+	 * @param string $sql [explicite description]
+	 * @param array $values [explicite description]
+	 *
+	 * @return PDOStatement
+	 */
 	protected function query(string $sql, array $values = []): PDOStatement
 	{
 		$stmt = $this->pdo->prepare(str_replace('__tablename__', ' `' . $this->tablename . '` ', $sql));

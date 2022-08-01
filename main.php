@@ -6,12 +6,16 @@ use simpleq\SimpleQ;
 
 date_default_timezone_set('America/New_York');
 
+require __DIR__ . '/traitConfigMerge.php';
 require __DIR__ . '/src/SimpleQ.php';
 require __DIR__ . '/src/Exceptions/SimpleQException.php';
 
 $simpleQ = new SimpleQ([
 	'garbage collection percent' => 100,
-], getConnection('simpleq', 'root', 'root', 'localhost'));
+	'pdo' => getConnection('simpleq', 'root', 'root', 'localhost'),
+	'pet' => 'dog',
+	'config only' => 123,
+]);
 
 $simpleQ->queue('hot');
 

@@ -23,7 +23,7 @@ $config = configMerge($config, $options);
 var_dump($config);
 */
 
-function configMerge(array &$config, array $options, $attach = false): array
+function configMerge(array &$config, array $options): array
 {
 	/* remove unknown */
 	$config = array_intersect_key($config, array_flip(array_keys($options)));
