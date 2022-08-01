@@ -22,7 +22,7 @@ class SimpleQ
 	protected $autoComplete = true;
 	protected $salt = 'ABC123';
 
-	protected $currentToken = '';
+	protected $currentToken = null;
 
 	/**
 	 * Method __construct
@@ -50,6 +50,11 @@ class SimpleQ
 		}
 	}
 
+	/**
+	 * Method __destruct
+	 *
+	 * @return void
+	 */
 	public function __destruct()
 	{
 		$this->autoComplete();
@@ -69,9 +74,24 @@ class SimpleQ
 		return $this;
 	}
 
+	/**
+	 * Method getQueue
+	 *
+	 * @return void
+	 */
+	public function getQueue(): string
+	{
+		return $this->currentQueue;
+	}
+
+	/**
+	 * Method getToken
+	 *
+	 * @return string
+	 */
 	public function getToken(): string
 	{
-		return $this->currentToken;
+		return ($this->currentToken) ? $this->currentToken : '';
 	}
 
 	/**
@@ -95,18 +115,11 @@ class SimpleQ
 			'created' => $this->now(),
 			'status' => SELF::NEW,
 			'payload' => $serialized,
-			'queue' => $this->getQueue(),
+			'queue' => $this->makeHash($this->currentQueue),
 			'checksum' => crc32($serialized . $this->salt),
 		]);
 
 		return ($dbc->rowCount() == 1);
-	}
-
-	protected function autoComplete(): void
-	{
-		if ($this->autoComplete && !empty($this->currentToken)) {
-			$this->complete();
-		}
 	}
 
 	/**
@@ -120,6 +133,8 @@ class SimpleQ
 	{
 		$this->autoComplete();
 
+		$queue = ($queue) ?? $this->currentQueue;
+
 		$data = false;
 
 		/* tag one */
@@ -132,7 +147,7 @@ class SimpleQ
 		], [
 			'status' => SELF::NEW,
 			'token is null' => null,
-			'queue' => $this->getQueue($queue),
+			'queue' => $this->makeHash($queue),
 		], 'limit 1');
 
 		if ($stmt->rowCount() > 0) {
@@ -161,9 +176,13 @@ class SimpleQ
 	 */
 	public function complete(): bool
 	{
-		$success = $this->update($this->currentToken, self::COMPLETE);
+		$success = false;
 
-		$this->currentToken = null;
+		if ($this->currentToken !== null) {
+			$success = $this->update($this->currentToken, self::COMPLETE);
+
+			$this->currentToken = null;
+		}
 
 		return $success;
 	}
@@ -177,14 +196,30 @@ class SimpleQ
 	 */
 	public function error(): bool
 	{
-		$success = $this->update($this->currentToken, self::ERROR);
+		$success = false;
 
-		$this->currentToken = null;
+		if ($this->currentToken !== null) {
+			$success = $this->update($this->currentToken, self::ERROR);
+
+			$this->currentToken = null;
+		}
 
 		return $success;
 	}
 
 	/** PROTECTED */
+
+	/**
+	 * Method autoComplete
+	 *
+	 * @return void
+	 */
+	protected function autoComplete(): void
+	{
+		if ($this->autoComplete && $this->currentToken !== null) {
+			$this->complete();
+		}
+	}
 
 	/**
 	 * Method makeHash
@@ -196,16 +231,6 @@ class SimpleQ
 	protected function makeHash(string $value): string
 	{
 		return hash($this->tokenHash, $value);
-	}
-
-	/**
-	 * Method getQueue
-	 *
-	 * @return void
-	 */
-	protected function getQueue(): string
-	{
-		return $this->makeHash($this->currentQueue);
 	}
 
 	/**
@@ -229,6 +254,11 @@ class SimpleQ
 		return ($dbc->rowCount() == 1);
 	}
 
+	/**
+	 * Method garagePickUp
+	 *
+	 * @return self
+	 */
 	protected function garagePickUp(): self
 	{
 		if ($this->retagHours > 0) {
@@ -252,6 +282,11 @@ class SimpleQ
 		return $this;
 	}
 
+	/**
+	 * Method now
+	 *
+	 * @return string
+	 */
 	protected function now(): string
 	{
 		$now = DateTime::createFromFormat('U.u', microtime(true));
