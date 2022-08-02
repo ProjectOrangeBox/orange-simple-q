@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace simpleq;
+namespace dmyers\simpleq;
 
 use DateTime;
 use PDOStatement;
-use base\configTrait;
-use simpleq\Exceptions\SimpleQException;
+use dmyers\base\configTrait;
+use dmyers\simpleq\Exceptions\SimpleQException;
 
 class SimpleQ
 {

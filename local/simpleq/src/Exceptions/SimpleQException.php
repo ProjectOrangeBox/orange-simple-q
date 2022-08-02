@@ -1,6 +1,6 @@
 <?php
 
-namespace simpleq\Exceptions;
+namespace dmyers\simpleq\Exceptions;
 
 use Exception;
 

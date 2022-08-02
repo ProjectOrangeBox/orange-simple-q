@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace base;
+namespace dmyers\base;
 
 /**
  * $config is a key / value pair of configuration values
@@ -32,14 +32,13 @@ trait configTrait
 	public function mergeConfiguration(array $config, array $options): void
 	{
 		$notRealValue = '##__NOT_REAL_VALUE__##';
-
-		$options = array_replace(['is_string', null, $notRealValue], $options);
-
 		$validationFunction = 0;
 		$realClassProperty = 1;
 		$defaultValueIfEmpty = 2;
 
 		foreach ($options as $configKeyName => $options) {
+			$options = array_replace(['is_null', null, $notRealValue], $options);
+
 			$realName = ($options[$realClassProperty] === true) ? $configKeyName : $options[$realClassProperty];
 
 			/* fill in missing */

@@ -1,9 +1,10 @@
 {
-	"name": "packages/simple-q",
-	"description": "Simple Q",
-	"autoload": {
-		"psr-4": {
-			"simpleq\\": "src"
+    "name": "packages/simple-q",
+    "description": "Simple Q",
+    "autoload": {
+        "psr-4": {
+            "dmyers\\simpleq\\": "local/simpleq/src",
+            "dmyers\\base\\": "local/base/src"
+        }
     }
-	}
 }

@@ -2,24 +2,11 @@
 
 declare(strict_types=1);
 
-use simpleq\SimpleQ;
+use dmyers\simpleq\SimpleQ;
+
+require 'vendor/autoload.php';
 
 date_default_timezone_set('America/New_York');
-
-require __DIR__ . '/configTrait.php';
-require __DIR__ . '/simpleq/src/SimpleQ.php';
-require __DIR__ . '/simpleq/src/Exceptions/SimpleQException.php';
-
-$options = ['a', 'b'];
-
-$options = array_replace(['x', 'y', 'z'], $options);
-
-var_dump($options);
-
-exit;
-
-
-
 
 $simpleQ = new SimpleQ([
 	'garbage collection percent' => 100,
@@ -87,9 +74,9 @@ function getConnection(string $databasename, string $username, string $password,
 	$dsn = "mysql:host=$host;dbname=$databasename;port=$port;charset=utf8";
 
 	try {
-		$pdo = new \PDO($dsn, $username, $password, $options);
-	} catch (\PDOException $e) {
-		throw new \PDOException($e->getMessage(), (int)$e->getCode());
+		$pdo = new PDO($dsn, $username, $password, $options);
+	} catch (PDOException $e) {
+		throw new PDOException($e->getMessage(), (int)$e->getCode());
 	}
 
 	return $pdo;
