@@ -25,32 +25,38 @@ namespace base;
  *
  */
 
-trait traitConfigMerge
+trait configTrait
 {
 	protected $config = [];
 
 	public function mergeConfiguration(array $config, array $options): void
 	{
+		$notRealValue = '##__NOT_REAL_VALUE__##';
+
+		$options = array_replace(['is_string', null, $notRealValue], $options);
+
+		$validationFunction = 0;
+		$realClassProperty = 1;
+		$defaultValueIfEmpty = 2;
+
 		foreach ($options as $configKeyName => $options) {
-			$realName = null;
-
-			if (isset($options[1])) {
-				if ($options[1] === true) {
-					$realName = $configKeyName;
-				} else {
-					$realName = $options[1];
-				}
-			}
-
-			$defaultValue = ($options[2]) ?? null;
+			$realName = ($options[$realClassProperty] === true) ? $configKeyName : $options[$realClassProperty];
 
 			/* fill in missing */
 			if (!isset($config[$configKeyName])) {
-				$config[$configKeyName] = ($defaultValue) ? $defaultValue : $this->$realName;
+				if ($options[$defaultValueIfEmpty] != $notRealValue) {
+					$config[$configKeyName] = $options[$defaultValueIfEmpty];
+				} else {
+					if (!property_exists($this, $realName)) {
+						throw new \Exception('Class property "' . $realName . '" does not exist');
+					}
+
+					$config[$configKeyName] = $this->$realName;
+				}
 			}
 
 			/* validate data */
-			$valadateRule = ($options[0]) ?? null;
+			$valadateRule = $options[$validationFunction];
 
 			if (substr($valadateRule, 0, 1) == '\\') {
 				$class = substr($valadateRule, 1);
@@ -66,6 +72,10 @@ trait traitConfigMerge
 
 			/* attach to class properties */
 			if ($realName) {
+				if (!property_exists($this, $realName)) {
+					throw new \Exception('Class property "' . $realName . '" does not exist');
+				}
+
 				$this->$realName = $config[$configKeyName];
 			}
 		}

@@ -6,9 +6,20 @@ use simpleq\SimpleQ;
 
 date_default_timezone_set('America/New_York');
 
-require __DIR__ . '/traitConfigMerge.php';
-require __DIR__ . '/src/SimpleQ.php';
-require __DIR__ . '/src/Exceptions/SimpleQException.php';
+require __DIR__ . '/configTrait.php';
+require __DIR__ . '/simpleq/src/SimpleQ.php';
+require __DIR__ . '/simpleq/src/Exceptions/SimpleQException.php';
+
+$options = ['a', 'b'];
+
+$options = array_replace(['x', 'y', 'z'], $options);
+
+var_dump($options);
+
+exit;
+
+
+
 
 $simpleQ = new SimpleQ([
 	'garbage collection percent' => 100,

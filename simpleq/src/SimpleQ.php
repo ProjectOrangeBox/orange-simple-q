@@ -6,12 +6,12 @@ namespace simpleq;
 
 use DateTime;
 use PDOStatement;
-use base\traitConfigMerge;
+use base\configTrait;
 use simpleq\Exceptions\SimpleQException;
 
 class SimpleQ
 {
-	use traitConfigMerge;
+	use configTrait;
 
 	const NEW = 1;
 	const TAGGED = 2;
@@ -202,19 +202,29 @@ class SimpleQ
 	 *
 	 * @return self
 	 */
-	protected function garagePickUp(): void
+	public function garagePickUp(): void
 	{
 		if (mt_rand(1, 99) < $this->garagePickUp) {
-			/* retag "tagged" to "new" if they got stuck because a process never completed them */
 			if ($this->retagHours > 0) {
-				$this->query('update __tablename__ set `token` = null, `status` = ' . self::NEW . ', `tagged` = null where `tagged` < now() - interval ' . $this->retagHours . ' hour and `status` = ' . self::TAGGED);
+				$this->requeue();
 			}
 
-			/* delete any complete */
 			if ($this->cleanUpHours > 0) {
-				$this->query('delete from __tablename__ where `complete` < now() - interval ' . $this->cleanUpHours . ' hour and `status` = ' . self::COMPLETE);
+				$this->removeComplete();
 			}
 		}
+	}
+
+	public function requeue(): int
+	{
+		/* retag "tagged" to "new" if they got stuck because a process never completed them */
+		return $this->query('update __tablename__ set `token` = null, `status` = ' . self::NEW . ', `tagged` = null where `tagged` < now() - interval ' . $this->retagHours . ' hour and `status` = ' . self::TAGGED)->rowCount();
+	}
+
+	public function removeComplete(): int
+	{
+		/* delete any complete */
+		return $this->query('delete from __tablename__ where `complete` < now() - interval ' . $this->cleanUpHours . ' hour and `status` = ' . self::COMPLETE)->rowCount();
 	}
 
 	/**
